@@ -150,7 +150,7 @@ class MediaControlApp:
 
         # 让整体在拉伸时跟随缩放
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(1, weight=1)
+        root.rowconfigure(2, weight=1)
 
         self._build_ui()
         # Ctrl+滚轮 调节字号
@@ -419,12 +419,18 @@ class MediaControlApp:
         self.btn_font = tkfont.Font(family="Segoe UI Symbol", size=ts + 3)
         self.tool_font = tkfont.Font(family="Microsoft YaHei UI", size=9)
 
-        # 顶栏 = 自绘标题栏：左侧来源应用，右侧 A−/A+/透明度/置顶/最小化/关闭
+        # 标题栏分两行：
+        #   第一行（top）：左侧来源应用名，右侧 置顶 / 最小化 / 关闭
+        #   第二行（tools）：关闭按钮下方一行的 透明度% / A− / A+ / 多 App 切换 ›
         # 拖拽由 Tk 客户端实现（_drag_start/_drag_move）：无边框窗口下
         # 依赖 Win32 的 HTCAPTION 移动循环会被 Tk 吞掉 NC 消息，不可靠
         top = tk.Frame(self.root, bg="#f9f9f9")
         top.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
         self.title_bar = top
+
+        tools = tk.Frame(self.root, bg="#f9f9f9")
+        tools.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 2))
+        self.tools_bar = tools
 
         self.app_label = tk.Label(
             top, text="没有正在播放的媒体", anchor="w",
@@ -433,7 +439,7 @@ class MediaControlApp:
         self.app_label.pack(side="left")
 
         # 标题栏任意空白/文字处都能拖动窗口
-        for w in (top, self.app_label):
+        for w in (top, tools, self.app_label):
             w.bind("<Button-1>", self._drag_start)
             w.bind("<B1-Motion>", self._drag_move)
 
@@ -458,15 +464,6 @@ class MediaControlApp:
         self.close_btn.bind("<Button-1>", lambda e: self.hide_window())
         _hover(self.close_btn, "#5a5a5a", "#ffffff", "#f9f9f9", "#e81123")
 
-        # 多 App 切换（右上角 ›）：有多个媒体会话时才显示（见 _apply_state），
-        # 点击循环切换当前控制的 App
-        self.switch_btn = tk.Label(
-            top, text="›", cursor="hand2",
-            bg="#f9f9f9", fg="#9a9a9a", font=("Segoe UI Symbol", 11, "bold"),
-        )
-        self.switch_btn.bind("<Button-1>", lambda e: self._cycle_session())
-        _hover(self.switch_btn, "#9a9a9a", "#1a1a1a")
-
         # 最小化
         self.min_btn = tk.Label(
             top, text="\ue921", cursor="hand2", width=3,
@@ -486,17 +483,27 @@ class MediaControlApp:
         _hover(self.pin_btn,
                lambda: "#1a73e8" if self.pinned else "#c0c0c0", "#1a1a1a")
 
+        # ---- 第二行：贴在关闭按钮下方，右对齐 ----
+        # 多 App 切换（›）：有多个媒体会话时才显示（见 _apply_state），
+        # 点击循环切换当前控制的 App。放在最右侧，紧挨关闭按钮下方
+        self.switch_btn = tk.Label(
+            tools, text="›", cursor="hand2",
+            bg="#f9f9f9", fg="#9a9a9a", font=("Segoe UI Symbol", 11, "bold"),
+        )
+        self.switch_btn.bind("<Button-1>", lambda e: self._cycle_session())
+        _hover(self.switch_btn, "#9a9a9a", "#1a1a1a")
+
         # 透明度（显示当前百分比）
         self.opacity_btn = tk.Label(
-            top, text=f"{self.opacity}%", cursor="hand2", width=5,
+            tools, text=f"{self.opacity}%", cursor="hand2", width=5,
             bg="#f9f9f9", fg="#9a9a9a", font=self.tool_font,
         )
-        self.opacity_btn.pack(side="right", padx=2)
+        self.opacity_btn.pack(side="right", padx=(2, 0))
         self.opacity_btn.bind("<Button-1>", lambda e: self._toggle_opacity_popup())
         _hover(self.opacity_btn, "#9a9a9a", "#1a1a1a")
 
         self.plus_btn = tk.Label(
-            top, text="A+", cursor="hand2", width=3,
+            tools, text="A+", cursor="hand2", width=3,
             bg="#f9f9f9", fg="#9a9a9a", font=self.tool_font,
         )
         self.plus_btn.pack(side="right", padx=2)
@@ -504,7 +511,7 @@ class MediaControlApp:
         _hover(self.plus_btn, "#9a9a9a", "#1a1a1a")
 
         self.minus_btn = tk.Label(
-            top, text="A−", cursor="hand2", width=3,
+            tools, text="A−", cursor="hand2", width=3,
             bg="#f9f9f9", fg="#9a9a9a", font=self.tool_font,
         )
         self.minus_btn.pack(side="right", padx=2)
@@ -513,7 +520,7 @@ class MediaControlApp:
 
         # 中部：封面 + 文本
         body = tk.Frame(self.root, bg="#f9f9f9")
-        body.grid(row=1, column=0, sticky="nsew", padx=16, pady=8)
+        body.grid(row=2, column=0, sticky="nsew", padx=16, pady=8)
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
 
@@ -547,7 +554,7 @@ class MediaControlApp:
 
         # 底部：控制按钮
         controls = tk.Frame(self.root, bg="#f9f9f9")
-        controls.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        controls.grid(row=3, column=0, sticky="ew", pady=(0, 12))
 
         self.btn_prev = self._make_btn(controls, "⏮", self.on_prev)
         self.btn_play = self._make_btn(controls, "⏸", self.on_play_pause)
@@ -758,8 +765,9 @@ class MediaControlApp:
             self._pinned_app_id = None  # 固定的 App 会话已消失，回到自动模式
         if len(app_ids) > 1:
             if not self._switch_shown:
-                self.switch_btn.pack(side="right", before=self.close_btn,
-                                     padx=(2, 4))
+                # tools 行的最右侧（透明度按钮右方），和关闭按钮同一列
+                self.switch_btn.pack(side="right", before=self.opacity_btn,
+                                     padx=(0, 2))
                 self._switch_shown = True
         elif self._switch_shown:
             self.switch_btn.pack_forget()
