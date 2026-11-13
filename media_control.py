@@ -121,6 +121,12 @@ class MediaControlApp:
         self.art_img = None  # 保持引用防止被 GC
         self._art_key = None
         self.pinned = False
+        # 多 App 会话切换：None 表示自动（优先正在播放的会话）；
+        # 用户点过 › 箭头后固定到该 App，直到其会话消失
+        self._pinned_app_id = None
+        self._app_ids = []          # 最近一次轮询到的全部会话 app_id
+        self._current_app_id = None
+        self._switch_shown = False  # 切换按钮当前是否已显示
 
         cfg = load_config()
         self.cfg = cfg
@@ -452,6 +458,15 @@ class MediaControlApp:
         self.close_btn.bind("<Button-1>", lambda e: self.hide_window())
         _hover(self.close_btn, "#5a5a5a", "#ffffff", "#f9f9f9", "#e81123")
 
+        # 多 App 切换（右上角 ›）：有多个媒体会话时才显示（见 _apply_state），
+        # 点击循环切换当前控制的 App
+        self.switch_btn = tk.Label(
+            top, text="›", cursor="hand2",
+            bg="#f9f9f9", fg="#9a9a9a", font=("Segoe UI Symbol", 11, "bold"),
+        )
+        self.switch_btn.bind("<Button-1>", lambda e: self._cycle_session())
+        _hover(self.switch_btn, "#9a9a9a", "#1a1a1a")
+
         # 最小化
         self.min_btn = tk.Label(
             top, text="\ue921", cursor="hand2", width=3,
@@ -654,20 +669,39 @@ class MediaControlApp:
         if not sessions:
             return None
 
-        # 优先选“正在播放”的会话，否则用第一个
-        target = sessions[0]
+        # 收集全部会话，供多 App 切换使用
+        entries = []
         for s in sessions:
             try:
-                if s.get_playback_info().playback_status == \
-                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.PLAYING:
-                    target = s
-                    break
+                entries.append((s.source_app_user_model_id or "", s))
             except Exception:
                 continue
+
+        # 用户点过 › 箭头后固定在某个 App；该 App 会话消失则自动回退
+        target = None
+        pinned = getattr(self, "_pinned_app_id", None)
+        if pinned:
+            for aid, s in entries:
+                if aid == pinned:
+                    target = s
+                    break
+
+        if target is None:
+            # 自动模式：优先选“正在播放”的会话，否则用第一个
+            target = entries[0][1] if entries else None
+            for aid, s in entries:
+                try:
+                    if s.get_playback_info().playback_status == \
+                            GlobalSystemMediaTransportControlsSessionPlaybackStatus.PLAYING:
+                        target = s
+                        break
+                except Exception:
+                    continue
 
         info = {
             "session": target,
             "app_id": target.source_app_user_model_id,
+            "app_ids": [aid for aid, _ in entries],
             "playing": target.get_playback_info().playback_status ==
                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.PLAYING,
         }
@@ -694,6 +728,10 @@ class MediaControlApp:
 
     def _apply_state(self, info):
         if info is None:
+            self._app_ids = []
+            if self._switch_shown:
+                self.switch_btn.pack_forget()
+                self._switch_shown = False
             self.app_label.config(text="没有正在播放的媒体")
             self.title_label.config(text="—")
             self.sub_label.config(text="")
@@ -704,12 +742,28 @@ class MediaControlApp:
 
         self.session = info["session"]
         app_id = info["app_id"] or ""
+        self._current_app_id = app_id
         # "C:\\path\\App.exe" → "App"；"com.vendor.app" → "app"
         if "\\" in app_id:
             app_name = app_id.rsplit("\\", 1)[-1]
         else:
             app_name = app_id.split("!")[0].rstrip(".").rsplit(".", 1)[-1]
         self.app_label.config(text=f"🎧 {app_name}")
+
+        # 多 App 切换按钮：系统里有 ≥2 个媒体会话时才显示，插在关闭按钮左边
+        app_ids = info.get("app_ids") or []
+        self._app_ids = app_ids
+        pin = getattr(self, "_pinned_app_id", None)
+        if pin and app_ids and pin not in app_ids:
+            self._pinned_app_id = None  # 固定的 App 会话已消失，回到自动模式
+        if len(app_ids) > 1:
+            if not self._switch_shown:
+                self.switch_btn.pack(side="right", before=self.close_btn,
+                                     padx=(2, 4))
+                self._switch_shown = True
+        elif self._switch_shown:
+            self.switch_btn.pack_forget()
+            self._switch_shown = False
 
         title = (info.get("title") or "").strip() or "未知标题"
         artist = (info.get("artist") or "").strip()
@@ -767,6 +821,24 @@ class MediaControlApp:
             self._art_key = art_key
 
     # ---------------- 控制 ----------------
+    def _cycle_session(self):
+        """右上角 › 箭头：在多个媒体会话（App）间循环切换。
+
+        固定到选中的 App 后，即使它暂停了也不会被其他正在播放的会话抢走；
+        该 App 的会话消失时自动回到“优先正在播放”的默认策略。
+        """
+        ids = list(getattr(self, "_app_ids", []) or [])
+        if len(ids) < 2:
+            return
+        cur = getattr(self, "_current_app_id", None)
+        try:
+            idx = ids.index(cur)
+        except ValueError:
+            idx = len(ids) - 1
+        self._pinned_app_id = ids[(idx + 1) % len(ids)]
+        # 立即刷新一次，不等下一轮 800ms 轮询
+        self._submit(self._get_state(), self._apply_state)
+
     def _need_session(self):
         if self.session is None:
             sessions = self.manager.get_sessions()
