@@ -132,6 +132,8 @@ class MediaControlApp:
         self.cfg = cfg
         self.title_size = max(9, min(26, int(cfg.get("title_size", 10))))
         self.opacity = max(40, min(100, int(cfg.get("opacity", 100))))
+        # 隐藏封面图（媒体正文左侧、App 提供的媒体缩略图）
+        self.hide_art = bool(cfg.get("hide_art", False))
         if self.opacity < 100:
             root.attributes("-alpha", self.opacity / 100.0)
 
@@ -518,6 +520,16 @@ class MediaControlApp:
         self.minus_btn.bind("<Button-1>", lambda e: self.change_size(-1))
         _hover(self.minus_btn, "#9a9a9a", "#1a1a1a")
 
+        # 隐藏封面图：点击切换媒体正文左侧的封面显示，隐藏时按钮变蓝
+        self.artvis_btn = tk.Label(
+            tools, text="🖼", cursor="hand2",
+            bg="#f9f9f9", fg="#c0c0c0", font=("Segoe UI Emoji", 10),
+        )
+        self.artvis_btn.pack(side="right", padx=(4, 2))
+        self.artvis_btn.bind("<Button-1>", self._toggle_art)
+        _hover(self.artvis_btn,
+               lambda: "#1a73e8" if self.hide_art else "#c0c0c0", "#1a1a1a")
+
         # 中部：封面 + 文本
         body = tk.Frame(self.root, bg="#f9f9f9")
         body.grid(row=2, column=0, sticky="nsew", padx=16, pady=8)
@@ -527,6 +539,8 @@ class MediaControlApp:
         self.art_label = tk.Label(body, text="📕", bg="#f9f9f9",
                                   font=("Segoe UI Emoji", 28))
         self.art_label.grid(row=0, column=0, sticky="w", padx=(0, 12))
+        # 启动时按配置决定封面是否显示（隐藏时正文占满整行）
+        self._apply_art_vis()
 
         # 文本区单独成帧，换行宽度按它自己的实际宽度计算，避免文字被裁
         text_frame = tk.Frame(body, bg="#f9f9f9")
@@ -576,6 +590,24 @@ class MediaControlApp:
         self.pinned = not self.pinned
         self.root.attributes("-topmost", self.pinned)
         self.pin_btn.config(fg="#1a73e8" if self.pinned else "#c0c0c0")
+
+    def _toggle_art(self, _event=None):
+        """显示/隐藏媒体正文左侧的封面图，状态持久化"""
+        self.hide_art = not self.hide_art
+        self.cfg["hide_art"] = self.hide_art
+        save_config(self.cfg)
+        self._apply_art_vis()
+
+    def _apply_art_vis(self):
+        """封面隐藏时正文文字占满整行；grid_remove/grid 保留原 grid 参数"""
+        try:
+            if self.hide_art:
+                self.art_label.grid_remove()
+            else:
+                self.art_label.grid()
+        except tk.TclError:
+            pass  # 窗口销毁阶段忽略
+        self.artvis_btn.config(fg="#1a73e8" if self.hide_art else "#c0c0c0")
 
     def change_size(self, delta):
         self.title_size = max(9, min(26, self.title_size + delta))
