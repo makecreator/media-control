@@ -68,7 +68,7 @@ DEFAULT_SIZE = (316, 235)
 def virtual_screen():
     """整个虚拟桌面（多显示器合并）的坐标范围，坐标体系与 tkinter 一致"""
     try:
-        u = ctypes.windll.user32
+        u = ctypes.WinDLL("user32")  # 私有实例，避免与其他模块的 argtypes 互相覆盖
         # 76/77 = X/YVIRTUALSCREEN, 78/79 = CXVIRTUALSCREEN/CYVIRTUALSCREEN
         return (u.GetSystemMetrics(76), u.GetSystemMetrics(77),
                 u.GetSystemMetrics(78), u.GetSystemMetrics(79))
@@ -146,9 +146,8 @@ class MediaControlApp:
         # 记录正常状态下的几何，供最小化/关闭（此时已非 normal）时保存
         self._last_geo = None
         root.bind("<Configure>", self._cache_geometry)
-        # 最小化/还原后重新映射时补刷一次命中区域
-        root.bind("<Map>", lambda e: self.root.after(100, self._refresh_hit_regions)
-                  if e.widget is self.root else None)
+        # 窗口重新映射（托盘唤回 / 最小化还原）后：补刷命中区域 + 重挂缩略图按钮
+        root.bind("<Map>", self._on_map)
 
         # 让整体在拉伸时跟随缩放
         root.columnconfigure(0, weight=1)
@@ -217,6 +216,18 @@ class MediaControlApp:
     def _refresh_hit_regions(self):
         """兼容旧调用：命中区域现在只处理边框，无需刷新任何缓存"""
         return
+
+    def _on_map(self, event):
+        if event.widget is not self.root:
+            return
+        self.root.after(100, self._refresh_hit_regions)
+        # 收进托盘再唤回时，任务栏按钮会被 explorer 销毁重建，
+        # 缩略图按钮随之丢失 —— 等任务栏按钮就绪后重新添加
+        tb = getattr(self, "_taskbar", None)
+        if tb is not None:
+            # readd 幂等；调度两次防慢机器上任务栏按钮尚未重建完
+            self.root.after(400, tb.readd)
+            self.root.after(1500, tb.readd)
 
     # ---------------- 标题栏拖拽（客户端实现） ----------------
     def _drag_start(self, event):
@@ -352,7 +363,7 @@ class MediaControlApp:
         销毁窗口会让 grab 循环永远不返回。
         原生 TrackPopupMenu 是同步返回的，选中项直接拿命令 ID，可靠得多。
         """
-        u = ctypes.windll.user32
+        u = ctypes.WinDLL("user32")  # 私有实例，避免与其他模块的 argtypes 互相覆盖
         u.CreatePopupMenu.restype = ctypes.c_void_p
         u.AppendMenuW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
                                   ctypes.c_size_t, ctypes.c_wchar_p]

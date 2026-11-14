@@ -86,6 +86,8 @@ pyinstaller --onefile --windowed --name MediaControl ^
 ## 实现要点（踩过的坑）
 
 - **绝不在 explorer / 系统回调线程里碰 tkinter。** 托盘和任务栏按钮的消息都来自系统线程，在其中调用 Tcl 会触发 `PyEval_RestoreThread: GIL is released` 崩溃。统一做法是：回调只把事件塞进队列，由 Tk 主线程轮询消费。
+- **缩略图按钮在窗口收进托盘后会丢失。** withdraw 时 explorer 会销毁任务栏按钮，缩略图按钮随之下线；窗口重新映射（`<Map>`）后必须重新 `ThumbBarAddButtons`（幂等：按钮还在时退化为 `ThumbBarUpdateButtons` 刷新状态）。
+- **各模块用自己的 `WinDLL()` 实例，不用 `ctypes.windll` 缓存。** windll 全局共享，多个模块对同名函数（如 `CreateDIBSection`）设置不同 `argtypes` 会互相覆盖——本项目和 `tray_icon` 各自定义了 `BITMAPINFO`，谁后 import 谁的签名生效，另一个模块的调用直接 `TypeError`。
 - **托盘右键菜单用原生 `TrackPopupMenu`。** `tk.Menu.tk_popup` 在托盘场景下点击菜单项只收起菜单、不触发命令（实测 `tk_popup` 正常返回但 command 从未执行），且在回调里销毁窗口会让 grab 循环永不返回。`TPM_RETURNCMD` 是同步返回命令 ID 的，退出流程因此变得可靠。
 - **拖拽用客户端实现。** 无边框窗口下 Tk 会吞掉 `WM_NCLBUTTONDOWN`，`DefWindowProc` 收不到消息，系统移动循环根本不启动（改投 `SC_MOVE` 同样无效）。因此标题栏绑定 `<Button-1>` / `<B1-Motion>`，直接 `geometry("+x+y")` 移动；`WM_NCHITTEST` 只保留边框缩放热区。
 - **自绘标题栏必须在窗口真正映射之后安装。** `withdraw` 状态下 `wm_frame()` 拿不到有效的 wrapper 句柄。

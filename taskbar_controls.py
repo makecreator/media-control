@@ -10,9 +10,13 @@ import collections
 import traceback
 from ctypes import c_void_p, wintypes, byref
 
-user32 = ctypes.windll.user32
-gdi32 = ctypes.windll.gdi32
-ole32 = ctypes.windll.ole32
+# 注意：这里必须用 WinDLL() 创建私有实例而不是 windll 缓存——windll 全局共享，
+# 多个模块对同名函数（如 CreateDIBSection）设置不同 argtypes 会互相覆盖：
+# 本模块和 tray_icon 各自定义了 BITMAPINFO，谁后 import 谁的签名生效，
+# 另一个模块的调用就会报 "expected LP_BITMAPINFO instance" 直接失败
+user32 = ctypes.WinDLL("user32")
+gdi32 = ctypes.WinDLL("gdi32")
+ole32 = ctypes.WinDLL("ole32")
 
 # ---------------- 常量 ----------------
 WM_COMMAND = 0x0111
@@ -188,6 +192,7 @@ class TaskbarControls:
         self._queue = collections.deque()  # 窗口过程间传递的点击队列
         self._poll_id = None
         self._closed = False
+        self.last_add_hr = None
 
         ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
 
@@ -231,8 +236,39 @@ class TaskbarControls:
         f = _vfunc(self._p, IDX_ADDBUTTONS, ctypes.c_long,
                    [wintypes.HWND, wintypes.UINT, ctypes.POINTER(THUMBBUTTON)])
         hr = f(self._p, self.hwnd, 3, self._buttons)
+        self.last_add_hr = hr
         if hr != 0:
             raise RuntimeError(f"ThumbBarAddButtons 失败: 0x{hr & 0xFFFFFFFF:08X}")
+
+    def readd(self):
+        """窗口收进托盘再唤回后，任务栏按钮会被 explorer 销毁重建，
+        原来挂在上面的缩略图按钮随之丢失，需要重新添加。
+
+        幂等：按钮还在（Add 返回失败）时退化为 UpdateButtons 刷新图标状态。
+        在 Tk 主线程调用；任务栏按钮重建需要一点时间，调用方应延迟几百 ms。
+        """
+        if self._closed:
+            return None
+        try:
+            f = _vfunc(self._p, IDX_ADDBUTTONS, ctypes.c_long,
+                       [wintypes.HWND, wintypes.UINT,
+                        ctypes.POINTER(THUMBBUTTON)])
+            hr = f(self._p, self.hwnd, 3, self._buttons)
+            self.last_add_hr = hr
+            if hr != 0:
+                self._update_all()
+            return hr
+        except Exception:
+            return None
+
+    def _update_all(self):
+        try:
+            f = _vfunc(self._p, IDX_UPDATEBUTTONS, ctypes.c_long,
+                       [wintypes.HWND, wintypes.UINT,
+                        ctypes.POINTER(THUMBBUTTON)])
+            f(self._p, self.hwnd, 3, self._buttons)
+        except Exception:
+            pass
 
     def set_playing(self, playing):
         """播放状态变化时更新中间按钮图标"""

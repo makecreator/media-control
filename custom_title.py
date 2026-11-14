@@ -15,8 +15,8 @@
 import ctypes
 from ctypes import c_void_p, wintypes
 
-user32 = ctypes.windll.user32
-dwmapi = ctypes.windll.dwmapi
+user32 = ctypes.WinDLL("user32")  # 私有实例，避免与其他模块的 argtypes 互相覆盖
+dwmapi = ctypes.WinDLL("dwmapi")
 
 GWL_STYLE = -16
 GWLP_WNDPROC = -4

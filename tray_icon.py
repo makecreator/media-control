@@ -13,10 +13,12 @@ import threading
 import traceback
 from ctypes import byref, wintypes
 
-user32 = ctypes.windll.user32
-shell32 = ctypes.windll.shell32
-kernel32 = ctypes.windll.kernel32
-gdi32 = ctypes.windll.gdi32
+# 注意：这里必须用 WinDLL() 创建私有实例而不是 windll 缓存——windll 全局共享，
+# 多个模块对同名函数设置不同 argtypes 会互相覆盖（taskbar_controls 的教训）
+user32 = ctypes.WinDLL("user32")
+shell32 = ctypes.WinDLL("shell32")
+kernel32 = ctypes.WinDLL("kernel32")
+gdi32 = ctypes.WinDLL("gdi32")
 
 # ---------------- 常量 ----------------
 WM_DESTROY = 0x0002
