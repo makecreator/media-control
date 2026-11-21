@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 媒体控制（MediaControl）
 
 Windows 11 上的独立媒体控制小窗。它读取系统的 SMTC（System Media Transport Controls）会话，把「当前谁在放什么」显示成一个小窗，并提供上一首 / 播放暂停 / 下一首等常用操作。
@@ -98,6 +97,3 @@ pyinstaller --onefile --windowed --name MediaControl ^
 - 仅支持 Windows，且依赖系统的 SMTC；播放器本身不上报 SMTC 时窗口不会显示内容。
 - 只跟随系统当前活跃的媒体会话，不做多会话切换。
 - 托盘单/双击区分依赖系统双击时间，慢速双击可能被识别为两次单击。
-=======
-# media-control
->>>>>>> d9bf3f47d0853063c1911848fbd2d4af92342c3d
